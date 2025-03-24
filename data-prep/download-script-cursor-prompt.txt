@@ -1,0 +1,7 @@
+I want to write an example for deploying a shiny app that calculates an estimated tip for a taxi based on data from the NYC.gov data at https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page. 
+
+As part of that exercise, I need to download the parquet files for a specific year. Help me write a script to do that. To generalize it, I would like the script to check what files I currently have locally and download only those that are missing or changed (if its possible to determine whether a file has changed -- otherwise assume it hasn't).
+
+I want to use R / tidyverse framework as much as possible. The process should run as a quarto doc, so that it logs the retrieval information in a PDF file. files should be placed in here::here('data')
+
+[manually parameterized year]

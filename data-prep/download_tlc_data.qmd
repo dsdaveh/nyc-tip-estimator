@@ -1,0 +1,134 @@
+---
+title: "Download NYC TLC Trip Data"
+format: 
+  pdf:
+    toc: true
+execute:
+  echo: true
+params:
+  year: 2024
+---
+
+```{r setup}
+#| warning: false
+#| message: false 
+library(tidyverse)
+library(here)
+library(httr)
+library(lubridate)
+library(arrow)
+
+# Create data directory if it doesn't exist
+data_dir <- here::here("data")
+if (!dir.exists(data_dir)) {
+  dir.create(data_dir)
+}
+
+year <- params$year
+```
+```{r retrieve}
+# Function to get the file size from URL without downloading
+get_remote_file_size <- function(url) {
+  tryCatch({
+    head_result <- HEAD(url)
+    as.numeric(headers(head_result)$`content-length`)
+  }, error = function(e) {
+    NA_real_
+  })
+}
+
+# Function to generate URLs for a given year
+generate_urls <- function(year) {
+  months <- sprintf("%02d", 1:12)
+  base_url <- "https://d37ci6vzurychx.cloudfront.net/trip-data"
+  
+  urls <- tibble(
+    month = months,
+    filename = str_glue("yellow_tripdata_{year}-{month}.parquet"),
+    url = str_glue("{base_url}/yellow_tripdata_{year}-{month}.parquet"),
+    local_path = here::here("data", filename)
+  )
+  
+  return(urls)
+}
+
+# Function to download a file if it's missing or changed
+download_if_needed <- function(url, local_path) {
+  needs_download <- TRUE
+  
+  if (file.exists(local_path)) {
+    remote_size <- get_remote_file_size(url)
+    local_size <- file.size(local_path)
+    
+    if (!is.na(remote_size) && remote_size == local_size) {
+      needs_download <- FALSE
+      message(str_glue("File {basename(local_path)} already exists and appears unchanged. Skipping."))
+    }
+  }
+  
+  if (needs_download) {
+    message(str_glue("Downloading {basename(local_path)}..."))
+    download.file(url, local_path, mode = "wb", method = "auto")
+    message(str_glue("Successfully downloaded {basename(local_path)}"))
+  }
+  
+  return(!needs_download)
+}
+
+```
+
+## Download TLC Trip Data
+
+We'll download yellow taxi trip data for `r year`. You can modify the year parameter to download data for different years in the yaml.
+
+```{r download-data}
+
+
+# Generate URLs for the specified year
+urls_df <- generate_urls(year)
+
+# Download files
+results <- urls_df %>%
+  rowwise() %>%
+  mutate(
+    skipped = download_if_needed(url, local_path),
+    timestamp = Sys.time()
+  ) %>%
+  ungroup()
+
+# Display summary
+results %>%
+  select(filename, skipped, timestamp) %>%
+  knitr::kable(
+    caption = str_glue("Download summary for {year} TLC trip data"),
+    col.names = c("Filename", "Skipped", "Timestamp")
+  )
+```
+
+## Verify Downloaded Files
+
+Let's check the files we've downloaded and their sizes:
+
+```{r verify-files}
+downloaded_files <- list.files(
+  path = data_dir,
+  pattern = str_glue("yellow_tripdata_{year}.*\\.parquet$"),
+  full.names = TRUE
+) %>%
+  file.info() %>%
+  rownames_to_column("filepath") %>%
+  as_tibble() %>%
+  mutate(
+    filename = basename(filepath),
+    size_mb = size / 1024^2
+  ) %>%
+  select(filename, size_mb, mtime)
+
+downloaded_files %>%
+  arrange(desc(mtime)) %>%
+  knitr::kable(
+    caption = "Downloaded files information",
+    col.names = c("Filename", "Size (MB)", "Modified Time"),
+    digits = 2
+  )
+``` 
