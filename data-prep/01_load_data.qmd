@@ -1,0 +1,133 @@
+---
+title: "NYC Taxi Trip Data Loading and Initial Analysis"
+format: html
+execute:
+  echo: true
+---
+
+```{r setup}
+#| message: false
+#| warning: false
+
+library(duckdb)
+library(dplyr)
+library(arrow)
+library(fs)
+library(glue)
+```
+
+## Connect to DuckDB and Load Data
+
+First, let's establish a connection to DuckDB and load all our parquet files:
+
+```{r}
+# Create a new DuckDB connection
+con <- dbConnect(duckdb())
+
+# Create a view of all parquet files
+dbExecute(con, "
+  CREATE VIEW yellow_trips AS 
+  SELECT * FROM read_parquet('../data/yellow_tripdata_*.parquet')
+")
+
+# Get basic stats about the data
+trip_stats <- dbGetQuery(con, "
+  SELECT 
+    COUNT(*) as total_records,
+    MIN(tpep_pickup_datetime) as earliest_trip,
+    MAX(tpep_pickup_datetime) as latest_trip,
+    COUNT(DISTINCT DATE_TRUNC('month', tpep_pickup_datetime)) as num_months
+  FROM yellow_trips
+")
+
+# Print the results
+print(glue("
+Dataset Statistics:
+------------------
+Total Records: {format(trip_stats$total_records, big.mark=',')}
+Date Range: {format(trip_stats$earliest_trip)} to {format(trip_stats$latest_trip)}
+Number of Months: {trip_stats$num_months}
+"))
+
+# Get size of parquet files
+parquet_files <- dir_info("../data/yellow_tripdata_*.parquet")
+total_size_gb <- sum(parquet_files$size) / 1024^3
+
+print(glue("
+Storage Statistics:
+------------------
+Total Parquet Files: {nrow(parquet_files)}
+Total Size on Disk: {round(total_size_gb, 2)} GB
+"))
+
+# Sample of the data structure
+dbGetQuery(con, "
+  SELECT *
+  FROM yellow_trips
+  LIMIT 5
+")
+```
+
+## Data Quality Checks
+
+Let's perform some basic data quality checks:
+
+```{r}
+# Check for nulls in key columns
+null_counts <- dbGetQuery(con, "
+  SELECT 
+    COUNT(*) - COUNT(tpep_pickup_datetime) as pickup_nulls,
+    COUNT(*) - COUNT(tpep_dropoff_datetime) as dropoff_nulls,
+    COUNT(*) - COUNT(passenger_count) as passenger_nulls,
+    COUNT(*) - COUNT(trip_distance) as distance_nulls,
+    COUNT(*) - COUNT(fare_amount) as fare_nulls,
+    COUNT(*) - COUNT(tip_amount) as tip_nulls
+  FROM yellow_trips
+")
+
+print("Null Counts in Key Columns:")
+print(null_counts)
+
+# Check for basic data validity
+invalid_records <- dbGetQuery(con, "
+  SELECT 
+    COUNT(*) as invalid_count,
+    'negative_fare' as issue
+  FROM yellow_trips
+  WHERE fare_amount < 0
+  
+  UNION ALL
+  
+  SELECT 
+    COUNT(*) as invalid_count,
+    'negative_distance' as issue
+  FROM yellow_trips
+  WHERE trip_distance < 0
+  
+  UNION ALL
+  
+  SELECT 
+    COUNT(*) as invalid_count,
+    'future_pickup' as issue
+  FROM yellow_trips
+  WHERE tpep_pickup_datetime > CURRENT_TIMESTAMP
+  
+  UNION ALL
+  
+  SELECT 
+    COUNT(*) as invalid_count,
+    'dropoff_before_pickup' as issue
+  FROM yellow_trips
+  WHERE tpep_dropoff_datetime < tpep_pickup_datetime
+")
+
+print("\nInvalid Record Counts:")
+print(invalid_records)
+```
+
+## Cleanup
+
+```{r}
+# Close the connection
+dbDisconnect(con, shutdown=TRUE)
+``` 
