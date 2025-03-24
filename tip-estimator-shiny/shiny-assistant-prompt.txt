@@ -1,0 +1,4 @@
+[Shiny - Shiny Assistant](https://shiny.posit.co/blog/posts/shiny-assistant/)
+Build me an app using shinymobile that can be easily used on my iphone. It should take the Day of Week (defaulting to today), and Hour of day (defaulting to current hour and displayed in military time. Eg. if it is 2:30, it should default to 1400). It should have a pulldown for NYC Borough based on the 5 NYC Boroughs.
+These will be inputs to an model it will invoke via API. For now use a place holder API of xyz.com/tip_estimate
+The output of the API will be 3 dollar figures in ascending order, representing the 90%, 50% and 10% percentiles for the estimated ride tip. This will be displayed as a vertical bar with the 90% value displayed at the bottom, and 10% at the top. The 50% will be a line corresponding to the 50% value. all values will be listed to the left of the bar for easy reading.
