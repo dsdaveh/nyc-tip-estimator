@@ -4,3 +4,7 @@
 .Ruserdata
 
 data/*.parquet
+data/*.duckdb
+**/*.html
+**/*_files
+**/.DS_Store

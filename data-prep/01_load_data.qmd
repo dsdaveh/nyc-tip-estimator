@@ -14,33 +14,90 @@ library(dplyr)
 library(arrow)
 library(fs)
 library(glue)
+library(dbplyr)
+library(here)
+library(readr)
+library(lubridate)
+library(pins)
 ```
 
-## Connect to DuckDB and Load Data
+## Load and Clean Data
 
-First, let's establish a connection to DuckDB and load all our parquet files:
+```{r duckdb}
+# Set database path
+db_path <- here("data", "nyc_taxi.duckdb")
 
-```{r}
-# Create a new DuckDB connection
-con <- dbConnect(duckdb())
+if (!file.exists(db_path)) {
+  message("Creating new database...")
+  # Create new database and load data
+  con <- dbConnect(duckdb(), dbdir = db_path)
+  
+  # Load parquet files and create clean table directly
+  message("Loading and cleaning data from parquet files...")
+  dbExecute(con, glue("
+    CREATE TABLE yellow_trips AS 
+    SELECT * FROM read_parquet('{here('data', 'yellow_tripdata_*.parquet')}')
+    WHERE 
+      -- No nulls in key columns
+      tpep_pickup_datetime IS NOT NULL
+      AND tpep_dropoff_datetime IS NOT NULL
+      AND passenger_count IS NOT NULL
+      AND trip_distance IS NOT NULL
+      AND fare_amount IS NOT NULL
+      AND tip_amount IS NOT NULL
+      
+      -- No invalid values
+      AND fare_amount >= 0
+      AND trip_distance >= 0
+      AND tpep_pickup_datetime <= CURRENT_TIMESTAMP
+      AND tpep_dropoff_datetime >= tpep_pickup_datetime
+      
+      -- Trips must be in 2024 (or first day of 2025 for dropoffs)
+      AND date_part('year', tpep_pickup_datetime) = 2024
+      AND (
+        date_part('year', tpep_dropoff_datetime) = 2024 
+        OR (
+          date_part('year', tpep_dropoff_datetime) = 2025 
+          AND date_part('month', tpep_dropoff_datetime) = 1 
+          AND date_part('day', tpep_dropoff_datetime) = 1
+        )
+      )
+  "))
 
-# Create a view of all parquet files
-dbExecute(con, "
-  CREATE VIEW yellow_trips AS 
-  SELECT * FROM read_parquet('../data/yellow_tripdata_*.parquet')
-")
+  # Create indices for faster querying
+  message("Creating indices...")
+  dbExecute(con, "CREATE INDEX idx_pickup_datetime ON yellow_trips(tpep_pickup_datetime)")
+  dbExecute(con, "CREATE INDEX idx_dropoff_datetime ON yellow_trips(tpep_dropoff_datetime)")
+  
+  # Create zones lookup table
+  message("Creating zones lookup table...")
+  dbExecute(con, glue("
+    CREATE TABLE zones AS 
+    SELECT * FROM read_csv_auto('{here('data', 'taxi_zone_lookup.csv')}')
+  "))
+  
+  # Create index on LocationID for joins
+  dbExecute(con, "CREATE INDEX idx_location_id ON zones(LocationID)")
+  
+} else {
+  message("Opening existing database in read mode...")
+  con <- dbConnect(duckdb(), dbdir = db_path, read_only = TRUE)
+}
+
+# Create table references
+trips_tbl <- tbl(con, "yellow_trips")
+zones_tbl <- tbl(con, "zones")
 
 # Get basic stats about the data
-trip_stats <- dbGetQuery(con, "
-  SELECT 
-    COUNT(*) as total_records,
-    MIN(tpep_pickup_datetime) as earliest_trip,
-    MAX(tpep_pickup_datetime) as latest_trip,
-    COUNT(DISTINCT DATE_TRUNC('month', tpep_pickup_datetime)) as num_months
-  FROM yellow_trips
-")
+trip_stats <- trips_tbl |>
+  summarise(
+    total_records = n(),
+    earliest_trip = min(tpep_pickup_datetime, na.rm = TRUE),
+    latest_trip = max(tpep_pickup_datetime, na.rm = TRUE),
+    num_months = n_distinct(date_trunc('month', tpep_pickup_datetime))
+  ) |>
+  collect()
 
-# Print the results
 print(glue("
 Dataset Statistics:
 ------------------
@@ -48,86 +105,43 @@ Total Records: {format(trip_stats$total_records, big.mark=',')}
 Date Range: {format(trip_stats$earliest_trip)} to {format(trip_stats$latest_trip)}
 Number of Months: {trip_stats$num_months}
 "))
-
-# Get size of parquet files
-parquet_files <- dir_info("../data/yellow_tripdata_*.parquet")
-total_size_gb <- sum(parquet_files$size) / 1024^3
-
-print(glue("
-Storage Statistics:
-------------------
-Total Parquet Files: {nrow(parquet_files)}
-Total Size on Disk: {round(total_size_gb, 2)} GB
-"))
-
-# Sample of the data structure
-dbGetQuery(con, "
-  SELECT *
-  FROM yellow_trips
-  LIMIT 5
-")
 ```
 
-## Data Quality Checks
 
-Let's perform some basic data quality checks:
+```{r aggregate}
+rides_by_hour_zone <- trips_tbl |>
+  left_join(zones_tbl, by = c("PULocationID" = "LocationID")) |>
+  mutate(hour = hour(tpep_pickup_datetime),
+         wday = wday(tpep_pickup_datetime),
+         period = case_when(
+           hour %in% 0:5 ~ "Late Night",
+           hour %in% 6:11 ~ "Morning",
+           hour %in% 12:17 ~ "Afternoon",
+           hour %in% 18:23 ~ "Evening"
+         )) |>
+  filter(! Borough %in% c("Unknown", "N/A")) |>
+  group_by(PULocationID, wday, period, Borough) |>
+  summarise(
+    total_rides = n(),
+    avg_fare = mean(fare_amount, na.rm=TRUE),
+    avg_tip = mean(tip_amount,na.rm=TRUE),
+    .groups = "drop"
+  ) |>
+  collect()
 
-```{r}
-# Check for nulls in key columns
-null_counts <- dbGetQuery(con, "
-  SELECT 
-    COUNT(*) - COUNT(tpep_pickup_datetime) as pickup_nulls,
-    COUNT(*) - COUNT(tpep_dropoff_datetime) as dropoff_nulls,
-    COUNT(*) - COUNT(passenger_count) as passenger_nulls,
-    COUNT(*) - COUNT(trip_distance) as distance_nulls,
-    COUNT(*) - COUNT(fare_amount) as fare_nulls,
-    COUNT(*) - COUNT(tip_amount) as tip_nulls
-  FROM yellow_trips
-")
-
-print("Null Counts in Key Columns:")
-print(null_counts)
-
-# Check for basic data validity
-invalid_records <- dbGetQuery(con, "
-  SELECT 
-    COUNT(*) as invalid_count,
-    'negative_fare' as issue
-  FROM yellow_trips
-  WHERE fare_amount < 0
-  
-  UNION ALL
-  
-  SELECT 
-    COUNT(*) as invalid_count,
-    'negative_distance' as issue
-  FROM yellow_trips
-  WHERE trip_distance < 0
-  
-  UNION ALL
-  
-  SELECT 
-    COUNT(*) as invalid_count,
-    'future_pickup' as issue
-  FROM yellow_trips
-  WHERE tpep_pickup_datetime > CURRENT_TIMESTAMP
-  
-  UNION ALL
-  
-  SELECT 
-    COUNT(*) as invalid_count,
-    'dropoff_before_pickup' as issue
-  FROM yellow_trips
-  WHERE tpep_dropoff_datetime < tpep_pickup_datetime
-")
-
-print("\nInvalid Record Counts:")
-print(invalid_records)
 ```
 
-## Cleanup
+# write a pin to save the data
+```{r pin}
+board <- board_connect(auth = "auto")
+board |> pin_write(rides_by_hour_zone, "dave.hurst/nyc_zone_tips", type = "csv")
+```
 
-```{r}
-# Close the connection
+
+```{r close}
+# Close connection
 dbDisconnect(con, shutdown=TRUE)
-``` 
+```
+
+
+

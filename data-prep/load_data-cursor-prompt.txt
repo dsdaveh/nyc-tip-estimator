@@ -1,0 +1,16 @@
+Write a new Quarto doc to preprocess the data
+
+Let's start by reading all the parquet files into a duckdb database,
+report out the first/last trip dates, total data size (record count and  total memory memory).
+---
+use dbplyr and dbplyr for all data interrogation
+---
+make sure this only creates duckdb once, and just uses it if it already exists.
+---
+store the file in the data directory instead
+---
+use here::here() with all file locations
+---
+store the file in the data directory instead
+---
+change the code to use the native pipe rather than the tidyverse pipe
