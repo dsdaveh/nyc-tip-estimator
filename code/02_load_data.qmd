@@ -3,6 +3,8 @@ title: "NYC Taxi Trip Data Loading and Initial Analysis"
 format: html
 execute:
   echo: true
+params:
+  pin_name_base: "nyc_pin_workshop"
 ---
 
 ```{r setup}
@@ -135,12 +137,12 @@ rides_by_hour_zone <- trips_tbl |>
 # write a pin to save the data
 ```{r pin}
 board <- board_connect(auth = "auto")
-board |> pin_write(rides_by_hour_zone, "dave.hurst/nyc_zone_tips", type = "csv")
+pin_base_name <- params$pin_name_base
+pin_name <- sprintf("%s/%s", board$account, pin_base_name)
+board |> pin_write(rides_by_hour_zone, pin_name, type = "csv")
 
 # Get and write the URL for the pin
-pin_info <- board |> 
-  pin_meta("dave.hurst/nyc_zone_tips") 
-pin_name <- pin_info$name
+pin_info <- board |> pin_meta(pin_name) 
 pin_url <- pin_info$local$url
 ```
 

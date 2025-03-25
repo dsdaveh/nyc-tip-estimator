@@ -9,3 +9,6 @@ data/*.duckdb
 **/*.html
 **/*_files
 **/.DS_Store
+code/01_download_*.pdf
+
+**/rsconnect/*

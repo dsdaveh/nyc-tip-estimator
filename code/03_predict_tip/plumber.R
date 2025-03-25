@@ -6,9 +6,12 @@ library(dplyr)
 library(lubridate)
 library(pins)
 
+pin_name_base <- "nyc_pin_workshop" #make sure this matches 02_load_data.qmd param
+
 # Read data from pin
 board <- board_connect(auth = "auto")
-data <- board |> pin_read("dave.hurst/nyc_zone_tips")
+pin_name <- sprintf("%s/%s", board$account, pin_name_base)
+data <- board |> pin_read(pin_name)
 
 #* Get tip quantile predictions based on input parameters
 #* @param day_of_week Day of the week (Monday through Sunday)
