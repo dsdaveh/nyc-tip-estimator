@@ -5,58 +5,118 @@ library(lubridate)
 library(httr)
 library(jsonlite)
 
-# Define NYC boroughs
-nyc_boroughs <- c("Manhattan", "Brooklyn", "Queens", "Bronx", "Staten Island")
+# API configuration
+api_token <- Sys.getenv("NYC_TIPS_API_KEY")
+if (api_token == "") {
+  stop(
+    "API key not found. Please set the NYC_TIPS_API_KEY environment variable.\n",
+    "You can do this by:\n",
+    "1. Creating a .Renviron file in your project directory\n",
+    "2. Adding the line: NYC_TIPS_API_KEY=your_api_key_here\n",
+    "3. Restart your R session"
+  )
+}
+api_base_url <- "https://connect-oha.acuna.cloud/nyc-tips-api"
 
-# Function to get tip estimates from API (placeholder)
+# Define function to get NYC boroughs from API
+get_nyc_boroughs <- function() {
+  tryCatch({
+    response <- GET(
+      paste0(api_base_url, "/boroughs"),
+      add_headers(Authorization = paste("Key", api_token))
+    )
+    if (status_code(response) == 200) {
+      boroughs <- fromJSON(rawToChar(response$content))
+      return(boroughs)
+    } else {
+      # Fallback to default boroughs if API fails
+      warning(sprintf("API call failed with status %d. Response: %s", 
+                     status_code(response), 
+                     rawToChar(response$content)))
+      return(c("Manhattan", "Brooklyn", "Queens", "Bronx", "Staten Island"))
+    }
+  }, error = function(e) {
+    # Fallback to default boroughs if API fails
+    warning("API call error: ", e$message)
+    return(c("Manhattan", "Brooklyn", "Queens", "Bronx", "Staten Island"))
+  })
+}
+
+# Get boroughs from API
+nyc_boroughs <- get_nyc_boroughs()
+
+# Function to convert hour to period
+hour_to_period <- function(hour) {
+  if (hour >= 22 || hour < 5) {
+    return("Late Night")
+  } else if (hour >= 5 && hour < 12) {
+    return("Morning")
+  } else if (hour >= 12 && hour < 17) {
+    return("Afternoon")
+  } else {
+    return("Evening")
+  }
+}
+
+# Function to get tip estimates from API
 get_tip_estimates <- function(day_of_week, hour_of_day, borough) {
-  # In a real app, this would make an API call to xyz.com/tip_estimate
-  # For now, return mock data
-  # Normally would be:
-  # response <- POST("xyz.com/tip_estimate", 
-  #                 body = list(day = day_of_week, hour = hour_of_day, borough = borough),
-  #                 encode = "json")
-  # result <- content(response, "parsed")
+  period <- hour_to_period(hour_of_day)
   
-  # Mock data for development
-  # Returns a list with 10%, 50%, and 90% percentiles (in that order)
-  set.seed(as.numeric(as.POSIXct(Sys.time())) %% 10000)  # Different seed based on time
-  
-  # Generate more realistic tip estimates based on the inputs
-  base_tip <- 5.00
-  
-  # Weekend effect
-  if (day_of_week %in% c("Saturday", "Sunday")) {
-    base_tip <- base_tip * 1.2
-  }
-  
-  # Rush hour effect
-  if (hour_of_day >= 7 && hour_of_day <= 9 || hour_of_day >= 16 && hour_of_day <= 19) {
-    base_tip <- base_tip * 1.15
-  }
-  
-  # Late night effect
-  if (hour_of_day >= 22 || hour_of_day <= 4) {
-    base_tip <- base_tip * 1.3
-  }
-  
-  # Borough effect
-  borough_multipliers <- c(
-    "Manhattan" = 1.3,
-    "Brooklyn" = 1.1,
-    "Queens" = 1.0,
-    "Bronx" = 0.9,
-    "Staten Island" = 0.85
+  # Construct API URL with query parameters
+  base_url <- paste0(api_base_url, "/predict")
+  body <- list(
+    day_of_week = day_of_week,
+    period = period,
+    borough = borough
   )
   
-  base_tip <- base_tip * borough_multipliers[borough]
-  
-  # Generate the percentiles with some variability
-  p90 <- round(base_tip * 0.7 + runif(1, -0.5, 0.5), 2)
-  p50 <- round(base_tip + runif(1, -0.5, 0.5), 2)
-  p10 <- round(base_tip * 1.3 + runif(1, -0.5, 0.5), 2)
-  
-  return(list(p10 = p10, p50 = p50, p90 = p90))
+  tryCatch({
+    message(sprintf("Making API request with parameters: day=%s, period=%s, borough=%s", 
+                   day_of_week, period, borough))
+    response <- POST(
+      base_url,
+      add_headers(Authorization = paste("Key", api_token)),
+      body = body,
+      encode = "json"
+    )
+    
+    if (status_code(response) == 200) {
+      result <- fromJSON(rawToChar(response$content))
+      message("API response: ", rawToChar(response$content))
+      
+      # Check if we got the expected fields
+      if (!all(c("q10", "q50", "q90") %in% names(result))) {
+        warning("API response missing expected fields. Response: ", rawToChar(response$content))
+        return(list(
+          p10 = 3.00,
+          p50 = 5.00,
+          p90 = 7.00
+        ))
+      }
+      
+      return(list(
+        p10 = round(as.numeric(result$q10), 2),
+        p50 = round(as.numeric(result$q50), 2),
+        p90 = round(as.numeric(result$q90), 2)
+      ))
+    } else {
+      warning(sprintf("API call failed with status %d. Response: %s", 
+                     status_code(response), 
+                     rawToChar(response$content)))
+      return(list(
+        p10 = 3.00,
+        p50 = 5.00,
+        p90 = 7.00
+      ))
+    }
+  }, error = function(e) {
+    warning("API call error: ", e$message)
+    return(list(
+      p10 = 3.00,
+      p50 = 5.00,
+      p90 = 7.00
+    ))
+  })
 }
 
 # UI
@@ -195,13 +255,11 @@ server <- function(input, output, session) {
       # Create the vertical bar
       geom_segment(aes(x = 1, xend = 1, y = 1, yend = 3), 
                    color = "grey", size = 10, alpha = 0.3) +
-      # Add the markers for each percentile
-      geom_point(color = "blue", size = 5) +
-      # Add special marker for median (50%)
-      geom_segment(aes(x = 0.7, xend = 1.3, y = 2, yend = 2), 
-                   color = "red", size = 1.5) +
-      # Add labels
-      geom_text(aes(label = paste0("$", value, " (", percentile, ")")), 
+      # Add the markers for each percentile, with 50% being an open point
+      geom_point(data = tip_data[tip_data$percentile != "50%",], color = "blue", size = 5) +
+      geom_point(data = tip_data[tip_data$percentile == "50%",], color = "blue", size = 5, shape = 1, stroke = 2) +
+      # Add labels with 2 decimal places
+      geom_text(aes(label = sprintf("$%.2f (%s)", value, percentile)), 
                 hjust = -0.2, size = 5) +
       # Theme adjustments
       theme_minimal() +
