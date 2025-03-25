@@ -1,0 +1,12 @@
+name: nyc-tip-estimator-shiny
+title: nyc-tip-estimator-shiny
+username: dave.hurst
+account: dave.hurst
+server: connect-oha.acuna.cloud
+hostUrl: https://connect-oha.acuna.cloud/__api__
+appId: 56
+bundleId: 140
+url: https://connect-oha.acuna.cloud/content/f03b4b81-36ae-465b-a1d5-6b2f8c00fd3a/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE
