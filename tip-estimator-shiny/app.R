@@ -178,13 +178,6 @@ ui <- page_fluid(
             width = "100%"
           ),
           
-          textInput(
-            "hour_display",
-            "Selected Hour",
-            value = sprintf("%02d:00", hour(now())),
-            width = "100%"
-          ),
-          
           selectInput(
             "borough",
             "NYC Borough",
@@ -215,14 +208,6 @@ ui <- page_fluid(
 
 # Server
 server <- function(input, output, session) {
-  # Make hour display read-only
-  observe({
-    updateTextInput(session, "hour_display", value = sprintf("%02d:00", input$hour_of_day))
-  })
-  
-  # Disable interaction with hour_display
-  shinyjs::runjs("document.getElementById('hour_display').readOnly = true;")
-  
   # Reactive value to store tip estimates
   tip_estimates <- reactiveVal(NULL)
   
@@ -243,37 +228,39 @@ server <- function(input, output, session) {
       return(p("Click 'Estimate Tips' to see your results", class = "text-center fs-5 text-muted mt-4"))
     }
     
-    # Create plot data for vertical bar
+    # Create plot data
     tip_data <- data.frame(
-      percentile = c("90%", "50%", "10%"),
-      value = c(est$p90, est$p50, est$p10),
-      y_pos = c(1, 2, 3)
+      percentile = c("10%", "50%", "90%"),
+      value = c(est$p10, est$p50, est$p90)
     )
     
     # Create the ggplot
-    p <- ggplot(tip_data, aes(x = 1, y = y_pos)) +
-      # Create the vertical bar
-      geom_segment(aes(x = 1, xend = 1, y = 1, yend = 3), 
+    p <- ggplot(tip_data, aes(x = value, y = 1)) +
+      # Create the horizontal bar
+      geom_segment(aes(x = 0, xend = 6, y = 1, yend = 1), 
                    color = "grey", size = 10, alpha = 0.3) +
       # Add the markers for each percentile, with 50% being an open point
       geom_point(data = tip_data[tip_data$percentile != "50%",], color = "blue", size = 5) +
       geom_point(data = tip_data[tip_data$percentile == "50%",], color = "blue", size = 5, shape = 1, stroke = 2) +
-      # Add labels with 2 decimal places
+      # Add labels with 2 decimal places, angled 45 degrees
       geom_text(aes(label = sprintf("$%.2f (%s)", value, percentile)), 
-                hjust = -0.2, size = 5) +
+                angle = 45, vjust = -0.5, hjust = -0.2, size = 4) +
+      # Add axis
+      scale_x_continuous(breaks = 0:6, labels = sprintf("$%d", 0:6)) +
       # Theme adjustments
       theme_minimal() +
       theme(
         axis.title = element_blank(),
-        axis.text = element_blank(),
-        axis.ticks = element_blank(),
-        panel.grid = element_blank(),
-        plot.margin = margin(20, 20, 20, 60),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        plot.margin = margin(30, 20, 20, 20),  # Increased top margin for angled labels
         plot.title = element_text(hjust = 0.5, size = 14)
       ) +
       # Set limits to make it look better
-      xlim(0.5, 3) +
-      ylim(0.5, 3.5) +
+      xlim(0, 6) +
+      ylim(0.5, 2) +
       # Add a title
       labs(title = paste0("Tip Estimates for ", input$borough))
     
@@ -282,15 +269,11 @@ server <- function(input, output, session) {
       div(
         class = "d-flex flex-column align-items-center",
         div(
-          class = "mb-3",
-          h3("Estimated Tip Range", class = "text-center")
-        ),
-        div(
           class = "w-100",
-          style = "height: 300px;",
+          style = "height: 250px;",  # Increased height to prevent label clipping
           renderPlot({
             p
-          }, height = 300, res = 96)
+          }, height = 250, res = 96)  # Increased height to match container
         ),
         div(
           class = "mt-3 text-center",
