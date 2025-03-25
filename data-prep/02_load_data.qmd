@@ -19,6 +19,7 @@ library(here)
 library(readr)
 library(lubridate)
 library(pins)
+library(purrr)
 ```
 
 ## Load and Clean Data
@@ -112,7 +113,7 @@ Number of Months: {trip_stats$num_months}
 rides_by_hour_zone <- trips_tbl |>
   left_join(zones_tbl, by = c("PULocationID" = "LocationID")) |>
   mutate(hour = hour(tpep_pickup_datetime),
-         wday = wday(tpep_pickup_datetime),
+         wday = wday(tpep_pickup_datetime, label = TRUE, abbr = FALSE),
          period = case_when(
            hour %in% 0:5 ~ "Late Night",
            hour %in% 6:11 ~ "Morning",
@@ -135,8 +136,15 @@ rides_by_hour_zone <- trips_tbl |>
 ```{r pin}
 board <- board_connect(auth = "auto")
 board |> pin_write(rides_by_hour_zone, "dave.hurst/nyc_zone_tips", type = "csv")
+
+# Get and write the URL for the pin
+pin_info <- board |> 
+  pin_meta("dave.hurst/nyc_zone_tips") 
+pin_name <- pin_info$name
+pin_url <- pin_info$local$url
 ```
 
+Stored pin in [`r pin_name`](`r pin_url`)
 
 ```{r close}
 # Close connection
