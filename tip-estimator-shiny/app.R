@@ -159,13 +159,28 @@ ui <- page_fluid(
       card(
         card_header("Input Parameters"),
         card_body(
-          selectInput(
-            "day_of_week",
-            "Day of Week",
-            choices = c("Monday", "Tuesday", "Wednesday", "Thursday", 
-                        "Friday", "Saturday", "Sunday"),
-            selected = weekdays(Sys.Date()),
-            width = "100%"
+          fluidRow(
+            column(
+              width = 6,
+              selectInput(
+                "day_of_week",
+                "Day of Week",
+                choices = c("Monday", "Tuesday", "Wednesday", "Thursday", 
+                          "Friday", "Saturday", "Sunday"),
+                selected = weekdays(Sys.Date()),
+                width = "100%"
+              )
+            ),
+            column(
+              width = 6,
+              selectInput(
+                "borough",
+                "NYC Borough",
+                choices = nyc_boroughs,
+                selected = nyc_boroughs[1],
+                width = "100%"
+              )
+            )
           ),
           
           sliderInput(
@@ -175,14 +190,6 @@ ui <- page_fluid(
             max = 23,
             value = hour(now()),
             step = 1,
-            width = "100%"
-          ),
-          
-          selectInput(
-            "borough",
-            "NYC Borough",
-            choices = nyc_boroughs,
-            selected = nyc_boroughs[1],
             width = "100%"
           ),
           
@@ -237,7 +244,7 @@ server <- function(input, output, session) {
     # Create the ggplot
     p <- ggplot(tip_data, aes(x = value, y = 1)) +
       # Create the horizontal bar
-      geom_segment(aes(x = 0, xend = 6, y = 1, yend = 1), 
+      geom_segment(aes(x = 0, xend = 10, y = 1, yend = 1), 
                    color = "grey", size = 10, alpha = 0.3) +
       # Add the markers for each percentile, with 50% being an open point
       geom_point(data = tip_data[tip_data$percentile != "50%",], color = "blue", size = 5) +
@@ -246,7 +253,7 @@ server <- function(input, output, session) {
       geom_text(aes(label = sprintf("$%.2f (%s)", value, percentile)), 
                 angle = 45, vjust = -0.5, hjust = -0.2, size = 4) +
       # Add axis
-      scale_x_continuous(breaks = 0:6, labels = sprintf("$%d", 0:6)) +
+      scale_x_continuous(breaks = 0:10, labels = sprintf("$%d", 0:10)) +
       # Theme adjustments
       theme_minimal() +
       theme(
@@ -259,7 +266,7 @@ server <- function(input, output, session) {
         plot.title = element_text(hjust = 0.5, size = 14)
       ) +
       # Set limits to make it look better
-      xlim(0, 6) +
+      xlim(0, 10) +
       ylim(0.5, 2) +
       # Add a title
       labs(title = paste0("Tip Estimates for ", input$borough))

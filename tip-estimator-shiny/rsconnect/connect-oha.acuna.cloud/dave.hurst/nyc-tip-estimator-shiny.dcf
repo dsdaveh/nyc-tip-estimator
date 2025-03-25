@@ -5,8 +5,8 @@ account: dave.hurst
 server: connect-oha.acuna.cloud
 hostUrl: https://connect-oha.acuna.cloud/__api__
 appId: 56
-bundleId: 140
-url: https://connect-oha.acuna.cloud/content/f03b4b81-36ae-465b-a1d5-6b2f8c00fd3a/
+bundleId: 141
+url: https://connect-oha.acuna.cloud/nyc-tips/
 version: 1
 asMultiple: FALSE
 asStatic: FALSE
