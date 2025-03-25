@@ -16,12 +16,13 @@ data <- board |> pin_read("dave.hurst/nyc_zone_tips")
 #* @param borough Borough name
 #* @post /predict
 function(day_of_week, period, borough) {
+  time_period <- period
   
   # Process the data
   filtered_data <- data |>
     filter(
       wday == day_of_week,
-      period == period,
+      period == time_period,
       Borough == borough
     )
   
